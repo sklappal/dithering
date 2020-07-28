@@ -1,0 +1,205 @@
+<html>
+
+<head>
+    <title>Dithering</title>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+    <meta name="viewport"
+        content="width=device-width,user-scalable=0,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        .column {
+            float: left;
+            width: 33.33%;
+            padding: 5px;
+        }
+        
+        /* Clearfix (clear floats) */
+        .row::after {
+            content: "";
+            clear: both;
+            display: table;
+        }
+        </style>
+    <script type="text/javascript">
+
+        var WIDTH = -1
+        var HEIGHT = -1
+
+        function getColor(x, y, imageData)
+        {
+            var coord = linearize(x, y);
+            var data = imageData.data;
+            return [data[coord], data[coord + 1], data[coord + 2]];
+        }
+
+        function setColor(x, y, color, imageData)
+        {
+            if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT)
+                return // ignore
+
+            var drawBuffer = imageData.data
+            var coord = linearize(x, y);    
+            drawBuffer[coord + 0] = color[0];
+            drawBuffer[coord + 1] = color[1];
+            drawBuffer[coord + 2] = color[2];
+            drawBuffer[coord + 3] = 255; // alpha
+        }
+
+        function roundColor(color, window) {
+            function round(channel) {
+                return Math.round(Math.round((channel / 255.0) * window)*(255/window))
+            }
+
+            return [round(color[0]), round(color[1]), round(color[2])]
+        }
+
+        function colorDiff(color1, color2) {
+            return [color1[0]-color2[0], color1[1]-color2[1], color1[2]-color2[2]]
+        }
+
+        function scaleColor(color, scale) {
+            return [scale * color[0], scale * color[1], scale * color[2]]
+        }
+
+        function sumColor(color1, color2) {
+            return [color1[0]+color2[0], color1[1]+color2[1], color1[2]+color2[2]]
+        }
+
+        function linearize(x, y)
+        {
+            return (x + WIDTH * y) * 4;
+        }
+
+        function toGrayScale() {
+            var currentImageData = getContext().getImageData(0, 0, WIDTH, HEIGHT)
+            var newImageData = getContext().createImageData(WIDTH, HEIGHT)
+
+            for (var y = 0; y < HEIGHT; y++) {
+                 for (var x = 0; x < WIDTH; x++) {
+                    var color = getColor(x, y, currentImageData)
+                    var intensity = 0.2989 * color[0] + 0.5870 * color[1] + 0.1140 * color[2]
+                    setColor(x, y, [intensity, intensity, intensity], newImageData)
+                }
+            }
+
+            getContext().putImageData(newImageData, 0, 0);
+            getElement("grayScaleButton").disabled = true
+
+
+        }
+
+        function dither() {
+            var currentImageData = getContext().getImageData(0, 0, WIDTH, HEIGHT)
+            var window = getElement("ditherWindow").value;
+            for (var y = 0; y < HEIGHT; y++) {
+                for (var x = 0; x < WIDTH; x++) {
+                    var color = getColor(x, y, currentImageData)
+                    var newColor = roundColor(color, window)
+                    var error = colorDiff(color, newColor)
+                    setColor(x, y, newColor, currentImageData)
+
+                    setColor(x+1, y  , sumColor(getColor(x+1, y  , currentImageData), scaleColor(error, 7.0/16.0)), currentImageData)
+                    setColor(x-1, y+1, sumColor(getColor(x-1, y+1, currentImageData), scaleColor(error, 3.0/16.0)), currentImageData)
+                    setColor(x  , y+1, sumColor(getColor(x  , y+1, currentImageData), scaleColor(error, 5.0/16.0)), currentImageData)
+                    setColor(x+1, y+1, sumColor(getColor(x+1, y+1, currentImageData), scaleColor(error, 1.0/16.0)), currentImageData)
+
+                }
+            }
+
+            getContext().putImageData(currentImageData, 0, 0);
+        }
+
+        function getElement(id) {
+            return document.getElementById(id);
+        }
+
+        function getCanvas() {
+            return getElement("canvas");
+        }
+
+        function getContext() {
+            return getCanvas().getContext("2d");
+        }
+
+        function reset() {
+            getCanvas().width = 300
+            getCanvas().height = 300
+            handleFiles()
+        }
+
+        function handleFiles() {
+            var fileList = getElement("fileInput").files
+            if (fileList.length != 1) {
+                return
+            }
+            
+            var fr = new FileReader();
+            fr.onload = function (e) {
+                var img = new Image();
+                img.onload = function () {
+                    c = getCanvas();
+
+                    var newWidth = c.width
+                    var newHeight = c.height
+
+                    if (img.width > img.height) {
+                        newHeight = (c.width / img.width) * img.height
+                    } else {
+                        newWidth = (c.height / img.height) * img.width
+                    }
+
+                    c.width = newWidth
+                    c.height = newHeight
+                    c.setAttribute("style", "width: " + 2 * newWidth + "; height: " + 2 * newHeight + ";image-rendering: pixelated;")
+                    WIDTH = c.width
+                    HEIGHT = c.height
+
+                    getContext().drawImage(img, 0, 0, c.width, c.height);
+                    getElement("grayScaleButton").disabled = false
+                    getElement("ditherButton").disabled = false
+                }
+                img.src = e.target.result;
+            }
+            fr.readAsDataURL(fileList[0]);
+        }
+
+    </script>
+</head>
+
+<input id="fileInput" type="file" onchange="handleFiles()" />
+<input id="resetButton" type="button" value="Reset" onclick="reset()" />
+<br/>
+<br/>
+
+<input id="grayScaleButton" type="button" value="To gray scale" onclick="toGrayScale()" disabled="true"/>
+<br/>
+<br/>
+
+<input id="ditherButton" type="button" value="Dither" onclick="dither()" disabled="true" style="margin-right: 40px"/>
+Dither result bit depth:
+<select id="ditherWindow">
+    <option value=1>3</option>
+    <option value=2>6</option>
+    <option value=3>9</option>
+    <option value=4>12</option>
+    <option value=5>15</option>
+    <option value=6>18</option>
+    <option value=7>21</option>
+    <option value=8>24</option>
+  </select>
+
+<br />
+<br />
+
+<body style="margin:0;padding:0">
+
+    <div>
+        <canvas id="canvas" style="width: 600; height: 600" oncontextmenu="return false;" width=300 height=300>&nbsp;</canvas>
+    </div>
+
+</body>
+
+</html>
